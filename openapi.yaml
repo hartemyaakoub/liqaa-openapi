@@ -1,0 +1,386 @@
+openapi: 3.1.0
+info:
+  title: LIQAA Public API
+  version: '1.0.0'
+  summary: Drop-in video calls and messaging for any website.
+  description: |
+    The LIQAA Public API lets you create video rooms, exchange browser-safe SDK
+    tokens, and subscribe to webhooks for real-time event delivery.
+
+    All endpoints are versioned under `/api/public/v1`. Authenticate with your
+    `sk_live_…` secret key in the `Authorization: Bearer …` header.
+
+    **Never expose `sk_live_…` to the browser.** It must remain server-side
+    only. The browser uses short-lived JWTs returned by `/sdk-token`.
+  termsOfService: https://liqaa.io/terms
+  contact:
+    name: LIQAA support
+    email: partners@tkawen.com
+    url: https://liqaa.io/contact
+  license:
+    name: Proprietary
+    url: https://liqaa.io/terms
+
+servers:
+  - url: https://liqaa.io/api/public/v1
+    description: Production
+
+externalDocs:
+  description: Full developer documentation
+  url: https://liqaa.io/docs
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: conversations
+    description: Persistent rooms — one per (caller, callee, conversation_id).
+  - name: tokens
+    description: Browser-safe JWT exchange.
+  - name: webhooks
+    description: HMAC-signed event delivery.
+
+paths:
+  /conversations:
+    post:
+      tags: [conversations]
+      summary: Create or reuse a persistent room
+      description: |
+        Returns the room for a given (caller, callee, conversation_id) tuple.
+        If a room already exists for that tuple, it is reused (idempotent).
+        Otherwise a new room is created.
+      operationId: createConversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationCreate'
+            example:
+              caller_email: agent@yoursite.com
+              caller_name: Support Agent
+              callee_email: customer@example.com
+              callee_name: Customer X
+              external_conversation_id: ticket-42
+      responses:
+        '201':
+          description: Room created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '200':
+          description: Room reused (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /conversations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ConversationId'
+    get:
+      tags: [conversations]
+      summary: Fetch room state
+      operationId: getConversation
+      responses:
+        '200':
+          description: Room found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [conversations]
+      summary: End an active call
+      operationId: endConversation
+      responses:
+        '204':
+          description: Call ended
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sdk-token:
+    post:
+      tags: [tokens]
+      summary: Exchange identity for a browser-safe JWT
+      description: |
+        Sign your visitor's identity (email, name, timestamp) with `sk_live_`
+        using HMAC-SHA256, base64-encode it, then exchange for a 1-hour
+        scoped JWT. Pass that JWT to the SDK in the browser as `data-token`.
+      operationId: exchangeSdkToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SdkTokenRequest'
+      responses:
+        '200':
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SdkTokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /webhooks:
+    get:
+      tags: [webhooks]
+      summary: List your webhook subscriptions
+      operationId: listWebhooks
+      responses:
+        '200':
+          description: Subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Webhook' }
+    post:
+      tags: [webhooks]
+      summary: Subscribe to events
+      description: |
+        Returns a `signing_secret` you must persist — it is shown only once.
+        Use the secret to verify the `X-LIQAA-Signature` header on every
+        delivery (HMAC-SHA256, replay window 5 minutes).
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookCreate'
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Webhook'
+                  - type: object
+                    properties:
+                      signing_secret:
+                        type: string
+                        example: whsec_AbC123dEf456GhI789
+
+  /webhooks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+    delete:
+      tags: [webhooks]
+      summary: Cancel a subscription
+      operationId: deleteWebhook
+      responses:
+        '204':
+          description: Subscription cancelled
+
+  /webhooks/{id}/deliveries:
+    parameters:
+      - $ref: '#/components/parameters/WebhookId'
+    get:
+      tags: [webhooks]
+      summary: Recent delivery audit
+      operationId: listDeliveries
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: Deliveries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/WebhookDelivery' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: sk_live_…
+      description: |
+        Pass your `sk_live_…` secret key as a bearer token.
+        The browser must never see this value.
+
+  parameters:
+    ConversationId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, example: conv_2f9aBcDeFgHi }
+    WebhookId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, example: 17 }
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid `sk_live_` key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds until the next attempt is allowed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: invalid_request
+        message:
+          type: string
+          example: caller_email must be a valid email
+
+    ConversationCreate:
+      type: object
+      required: [caller_email, callee_email]
+      properties:
+        caller_email:
+          type: string
+          format: email
+        caller_name:
+          type: string
+        callee_email:
+          type: string
+          format: email
+        callee_name:
+          type: string
+        external_conversation_id:
+          type: string
+          maxLength: 128
+          description: Idempotency key — pass the same value to reuse the same room.
+        title:
+          type: string
+          maxLength: 200
+
+    Conversation:
+      type: object
+      required: [ok, room_name, join_url]
+      properties:
+        ok: { type: boolean, example: true }
+        reused:
+          type: boolean
+          description: True if a pre-existing room was returned.
+        room_name: { type: string, example: room-abc123 }
+        meeting_id: { type: integer, example: 42 }
+        join_url: { type: string, format: uri, example: https://liqaa.io/meeting/room-abc123 }
+        guest_join_url: { type: string, format: uri, example: https://liqaa.io/join/room-abc123 }
+        caller_join_url: { type: string, format: uri, example: 'https://liqaa.io/join/room-abc123?name=Agent&auto=1' }
+        callee_join_url: { type: string, format: uri, nullable: true }
+        embed_url: { type: string, format: uri, example: https://liqaa.io/embed/room-abc123 }
+        expires_at: { type: string, format: date-time }
+
+    SdkTokenRequest:
+      type: object
+      required: [public_key, identity_base64, signature]
+      properties:
+        public_key:
+          type: string
+          example: pk_live_5gyAZ0…
+        identity_base64:
+          type: string
+          description: |
+            Base64-encoded JSON `{ "email": "...", "name": "...", "ts": <unix> }`.
+        signature:
+          type: string
+          description: HMAC-SHA256 of `identity_base64` using your `sk_live_`.
+
+    SdkTokenResponse:
+      type: object
+      required: [sdk_token, expires_at]
+      properties:
+        sdk_token:
+          type: string
+          example: tkc_eyJhbGciOi…
+        expires_at:
+          type: string
+          format: date-time
+
+    Webhook:
+      type: object
+      required: [id, url, events, active]
+      properties:
+        id: { type: integer, example: 17 }
+        url:
+          type: string
+          format: uri
+          example: https://yoursite.com/api/webhooks/liqaa
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - call.started
+              - call.ended
+              - call.declined
+              - message.sent
+              - conversation.created
+              - '*'
+        description: { type: string, nullable: true }
+        active: { type: boolean }
+        failure_count: { type: integer }
+        last_delivered_at: { type: string, format: date-time, nullable: true }
+        last_failed_at: { type: string, format: date-time, nullable: true }
+        signing_secret_preview:
+          type: string
+          example: whsec_AbC1…
+        created_at: { type: string, format: date-time }
+
+    WebhookCreate:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items: { type: string }
+          example: ['call.started', 'call.ended']
+        description: { type: string }
+
+    WebhookDelivery:
+      type: object
+      properties:
+        id: { type: integer }
+        event: { type: string, example: call.started }
+        attempt: { type: integer }
+        success: { type: boolean }
+        status_code: { type: integer, nullable: true }
+        error: { type: string, nullable: true }
+        delivered_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
