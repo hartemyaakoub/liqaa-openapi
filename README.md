@@ -41,16 +41,16 @@ npx openapi-typescript openapi.yaml -o liqaa-client.ts
 
 ## Endpoint summary
 
-| Endpoint                                  | Method | Description                                          |
+| Endpoint | Method | Description |
 | ----------------------------------------- | ------ | ---------------------------------------------------- |
-| `/conversations`                          | POST   | Create or reuse a persistent room                    |
-| `/conversations/{id}`                     | GET    | Fetch room state                                     |
-| `/conversations/{id}`                     | DELETE | End an active call                                   |
-| `/sdk-token`                              | POST   | Exchange identity → 1-hour browser-safe JWT          |
-| `/webhooks`                               | GET    | List your subscriptions                              |
-| `/webhooks`                               | POST   | Subscribe (returns one-time signing secret)          |
-| `/webhooks/{id}`                          | DELETE | Cancel a subscription                                |
-| `/webhooks/{id}/deliveries`               | GET    | Recent delivery audit                                |
+| `/conversations` | POST | Create or reuse a persistent room |
+| `/conversations/{id}` | GET | Fetch room state |
+| `/conversations/{id}` | DELETE | End an active call |
+| `/sdk-token` | POST | Exchange identity → 1-hour browser-safe JWT |
+| `/webhooks` | GET | List your subscriptions |
+| `/webhooks` | POST | Subscribe (returns one-time signing secret) |
+| `/webhooks/{id}` | DELETE | Cancel a subscription |
+| `/webhooks/{id}/deliveries` | GET | Recent delivery audit |
 
 ## Authentication
 
@@ -58,9 +58,9 @@ All endpoints require `Authorization: Bearer sk_live_…`. **Never expose `sk_li
 
 ```bash
 curl https://liqaa.io/api/public/v1/conversations \
-  -H "Authorization: Bearer sk_live_…" \
-  -H "Content-Type: application/json" \
-  -d '{"caller_email":"a@b.com","callee_email":"c@d.com"}'
+-H "Authorization: Bearer sk_live_…" \
+-H "Content-Type: application/json" \
+-d '{"caller_email":"a@b.com","callee_email":"c@d.com"}'
 ```
 
 ## Versioning
